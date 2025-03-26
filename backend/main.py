@@ -1,11 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
 import httpx
 from bs4 import BeautifulSoup
 import re
-from typing import Optional
+from typing import Optional, Union, List
 import asyncio
+from prompts import PRESET_PROMPTS
 
 app = FastAPI(title="卡片制作工具 API")
 
@@ -21,7 +22,6 @@ app.add_middleware(
 class ContentRequest(BaseModel):
     url: str
     prompt: str
-    max_length: int = 500  # 默认最大长度为500字符，前端可调整至5000
     
     @validator('url')
     def validate_url(cls, v):
@@ -100,48 +100,13 @@ def extract_main_content(html_content: str) -> str:
     
     return '\n'.join(content_texts)
 
-def compress_content(content: str, max_length: int = 500) -> str:
-    """智能压缩内容到指定长度，保留关键信息"""
-    if len(content) <= max_length:
-        return content
-    
-    # 按句子拆分
-    sentences = re.split(r'(?<=[。！？.!?])', content)
-    
-    # 压缩策略 - 保留开头、中间和结尾的重要句子
-    result = ""
-    
-    # 添加开头的内容
-    start_portion = int(max_length * 0.6)  # 60%用于开头
-    start_text = ""
-    i = 0
-    while i < len(sentences) and len(start_text) < start_portion:
-        start_text += sentences[i]
-        i += 1
-    
-    # 添加结尾的一些内容
-    end_portion = max_length - len(start_text) - 3  # 留3个字符给省略号
-    if end_portion > 50 and i < len(sentences) - 1:  # 如果还有足够空间且还有句子
-        end_text = sentences[-1]
-        if len(end_text) > end_portion:
-            end_text = end_text[:end_portion]
-        
-        return start_text + "..." + end_text
-    
-    # 如果结尾部分太小或没有更多句子，只返回截断的开头部分
-    if len(start_text) > max_length:
-        return start_text[:max_length-3] + "..."
-    
-    return start_text + "..."
-
 @app.post("/process_content")
 async def process_content(data: ContentRequest):
     """
     主要处理流程:
     1. 验证URL有效性
     2. 智能内容提取
-    3. 内容压缩
-    4. 拼接模板
+    3. 拼接模板
     """
     try:
         # 获取URL内容
@@ -153,16 +118,57 @@ async def process_content(data: ContentRequest):
         if not main_content or len(main_content.strip()) < 30:
             return {"result": f"[{data.prompt}] 请参考以下内容：无法从该URL提取有效内容"}
         
-        # 压缩内容
-        compressed_content = compress_content(main_content, data.max_length)
-        
         # 拼接结果
-        result = f"[{data.prompt}] 请参考以下内容：{compressed_content}"
+        result = f"[{data.prompt}] 请参考以下内容：{main_content}"
         
         return {"result": result}
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+
+@app.post("/process_html_file")
+async def process_html_file(
+    file: UploadFile = File(...),
+    prompt: str = Form(...)
+):
+    """
+    处理上传的HTML文件:
+    1. 解析HTML文件内容
+    2. 提取主要内容
+    3. 拼接模板
+    """
+    try:
+        # 验证文件类型
+        if not file.filename.endswith(('.html', '.htm')):
+            raise HTTPException(status_code=400, detail="只支持HTML格式文件")
+        
+        # 读取文件内容
+        html_content = await file.read()
+        html_text = html_content.decode('utf-8', errors='ignore')
+        
+        # 提取主要内容
+        main_content = extract_main_content(html_text)
+        
+        if not main_content or len(main_content.strip()) < 30:
+            return {"result": f"[{prompt}] 请参考以下内容：无法从该HTML文件提取有效内容"}
+        
+        # 拼接结果
+        result = f"[{prompt}] 请参考以下内容：{main_content}"
+        
+        return {"result": result}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"处理HTML文件失败: {str(e)}")
+
+@app.get("/preset_prompts")
+async def get_preset_prompts():
+    """
+    获取预设提示词列表
+    
+    返回:
+    - 预设提示词数组
+    """
+    return {"prompts": PRESET_PROMPTS}
 
 @app.get("/")
 def read_root():

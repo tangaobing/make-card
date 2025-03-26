@@ -1,0 +1,69 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Node.js
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+**/*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+.env/
+.virtualenv/
+
+# 前端构建产物和临时文件
+frontend/dist/
+frontend/.cache/
+frontend/build/
+frontend/coverage/
+
+# 后端临时文件
+backend/__pycache__/
+backend/*.pyc
+backend/*.pyo
+backend/*.pyd
+backend/.pytest_cache/
+backend/.coverage
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 本地环境配置
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/__pycache__/main.cpython-313.pyc
