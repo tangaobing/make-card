@@ -31,6 +31,10 @@ class ContentRequest(BaseModel):
             raise ValueError('URL必须以http://或https://开头')
         return v
 
+class TextInputRequest(BaseModel):
+    text: str
+    prompt: str
+
 async def fetch_url_with_retry(url: str, max_retries: int = 3, timeout: int = 10):
     """尝试获取URL内容，带重试机制，增加超时时间到10秒"""
     headers = {
@@ -159,6 +163,33 @@ async def process_html_file(
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"处理HTML文件失败: {str(e)}")
+
+@app.post("/process_text_input")
+async def process_text_input(data: TextInputRequest):
+    """
+    处理用户直接输入的文本:
+    1. 验证文本内容
+    2. 拼接提示词和内容
+    
+    参数:
+    - text: 用户输入的文本内容
+    - prompt: 提示词
+    
+    返回:
+    - 拼接后的结果
+    """
+    try:
+        # 验证文本内容
+        if not data.text or len(data.text.strip()) < 5:
+            raise HTTPException(status_code=400, detail="请输入有效的文本内容，至少5个字符")
+        
+        # 拼接结果
+        result = f"[{data.prompt}] 请参考以下内容：{data.text}"
+        
+        return {"result": result}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"处理文本失败: {str(e)}")
 
 @app.get("/preset_prompts")
 async def get_preset_prompts():

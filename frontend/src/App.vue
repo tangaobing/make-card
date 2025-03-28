@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
 import { ElMessage, ElDialog } from 'element-plus';
 import { 
@@ -11,7 +11,9 @@ import {
   Check, 
   DocumentCopy,
   Edit,
-  List
+  List,
+  Document,
+  ArrowDown
 } from '@element-plus/icons-vue';
 
 const API_URL = 'http://localhost:8000';
@@ -20,13 +22,20 @@ const API_URL = 'http://localhost:8000';
 const formData = reactive({
   url: '',
   prompt: '',
+  userInput: '' // 新增用户直接输入的内容
   // 去除最大字符限制
 });
 
 // 文件上传相关
 const htmlFile = ref(null);
 const fileUploadRef = ref(null);
-const isFileMode = ref(false);
+const inputMode = ref('url'); // 'url', 'file', 'text'
+const isDropdownOpen = ref(false);
+const inputModeLabels = {
+  url: '网址',
+  file: 'HTML',
+  text: '文本'
+};
 
 // 输出结果
 const outputResult = ref('');
@@ -48,6 +57,7 @@ const validateUrl = (url) => {
 // 页面加载时获取预设提示词
 onMounted(async () => {
   await fetchPresetPrompts();
+  document.addEventListener('click', closeDropdown);
 });
 
 // 获取预设提示词列表
@@ -65,14 +75,22 @@ const fetchPresetPrompts = async () => {
 };
 
 // 设置输入模式
-const setInputMode = (fileMode) => {
+const setInputMode = (mode) => {
   if (loading.value) return;
-  isFileMode.value = fileMode;
+  inputMode.value = mode;
   
   // 清空相关输入
-  if (fileMode) {
+  if (mode === 'url') {
+    formData.userInput = '';
+    htmlFile.value = null;
+    if (fileUploadRef.value) {
+      fileUploadRef.value.clearFiles();
+    }
+  } else if (mode === 'file') {
     formData.url = '';
-  } else {
+    formData.userInput = '';
+  } else if (mode === 'text') {
+    formData.url = '';
     htmlFile.value = null;
     if (fileUploadRef.value) {
       fileUploadRef.value.clearFiles();
@@ -126,7 +144,7 @@ const handleSubmit = async () => {
     
     let response;
     
-    if (isFileMode.value) {
+    if (inputMode.value === 'file') {
       // 文件模式处理
       if (!htmlFile.value) {
         ElMessage.error('请选择HTML文件');
@@ -144,7 +162,7 @@ const handleSubmit = async () => {
           'Content-Type': 'multipart/form-data'
         }
       });
-    } else {
+    } else if (inputMode.value === 'url') {
       // URL模式处理
       if (!validateUrl(formData.url)) {
         ElMessage.error('请输入有效的URL地址（以http://或https://开头）');
@@ -156,6 +174,18 @@ const handleSubmit = async () => {
         url: formData.url,
         prompt: formData.prompt
         // 不再传递max_length参数
+      });
+    } else if (inputMode.value === 'text') {
+      // 文本输入模式处理
+      if (!formData.userInput.trim()) {
+        ElMessage.error('请输入内容文本');
+        loading.value = false;
+        return;
+      }
+      
+      response = await axios.post(`${API_URL}/process_text_input`, {
+        text: formData.userInput,
+        prompt: formData.prompt
       });
     }
     
@@ -200,6 +230,7 @@ const copyToClipboard = () => {
 const clearAll = () => {
   formData.url = '';
   formData.prompt = '';
+  formData.userInput = '';
   outputResult.value = '';
   htmlFile.value = null;
   if (fileUploadRef.value) {
@@ -216,6 +247,31 @@ const openUrlPreview = () => {
   }
   window.open(formData.url, '_blank');
 };
+
+// 切换下拉菜单显示状态
+const toggleModeDropdown = () => {
+  if (loading.value) return;
+  isDropdownOpen.value = !isDropdownOpen.value;
+};
+
+// 选择输入模式并关闭下拉菜单
+const selectInputMode = (mode) => {
+  setInputMode(mode);
+  isDropdownOpen.value = false;
+};
+
+// 点击外部关闭下拉菜单
+const closeDropdown = (event) => {
+  const dropdown = document.querySelector('.mode-dropdown');
+  if (isDropdownOpen.value && dropdown && !dropdown.contains(event.target)) {
+    isDropdownOpen.value = false;
+  }
+};
+
+// 组件卸载时移除事件监听
+onUnmounted(() => {
+  document.removeEventListener('click', closeDropdown);
+});
 </script>
 
 <template>
@@ -232,22 +288,43 @@ const openUrlPreview = () => {
           <div class="section-header">
             <div class="title-row">
               <h2>输入</h2>
-              <div class="input-mode-tabs">
-                <div 
-                  class="tab-item" 
-                  :class="{active: !isFileMode}" 
-                  @click="setInputMode(false)"
-                  :disabled="loading"
-                >
-                  <el-icon><Link /></el-icon> 网址
-                </div>
-                <div 
-                  class="tab-item" 
-                  :class="{active: isFileMode}"
-                  @click="setInputMode(true)"
-                  :disabled="loading"
-                >
-                  <el-icon><Upload /></el-icon> HTML
+              <div class="mode-dropdown-container">
+                <div class="mode-dropdown" @click="toggleModeDropdown" :class="{ 'is-open': isDropdownOpen }">
+                  <div class="selected-mode">
+                    <el-icon v-if="inputMode === 'url'"><Link /></el-icon>
+                    <el-icon v-else-if="inputMode === 'file'"><Upload /></el-icon>
+                    <el-icon v-else-if="inputMode === 'text'"><Document /></el-icon>
+                    <span>{{ inputModeLabels[inputMode] }}</span>
+                    <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
+                  </div>
+                  <transition name="dropdown">
+                    <div class="dropdown-menu" v-show="isDropdownOpen">
+                      <div 
+                        class="dropdown-item" 
+                        :class="{ active: inputMode === 'url' }"
+                        @click.stop="selectInputMode('url')"
+                      >
+                        <el-icon><Link /></el-icon>
+                        <span>网址</span>
+                      </div>
+                      <div 
+                        class="dropdown-item" 
+                        :class="{ active: inputMode === 'file' }"
+                        @click.stop="selectInputMode('file')"
+                      >
+                        <el-icon><Upload /></el-icon>
+                        <span>HTML</span>
+                      </div>
+                      <div 
+                        class="dropdown-item" 
+                        :class="{ active: inputMode === 'text' }"
+                        @click.stop="selectInputMode('text')"
+                      >
+                        <el-icon><Document /></el-icon>
+                        <span>文本</span>
+                      </div>
+                    </div>
+                  </transition>
                 </div>
               </div>
             </div>
@@ -255,7 +332,7 @@ const openUrlPreview = () => {
           
           <div class="compact-form">
             <!-- URL输入区域 -->
-            <div v-if="!isFileMode" class="url-area">
+            <div v-if="inputMode === 'url'" class="url-area">
               <div class="url-input-group">
                 <el-input 
                   v-model="formData.url" 
@@ -282,7 +359,7 @@ const openUrlPreview = () => {
             </div>
             
             <!-- HTML文件上传区域 -->
-            <div v-else class="file-area">
+            <div v-else-if="inputMode === 'file'" class="file-area">
               <el-upload
                 ref="fileUploadRef"
                 action="#"
@@ -301,6 +378,19 @@ const openUrlPreview = () => {
                   </div>
                 </template>
               </el-upload>
+            </div>
+            
+            <!-- 文本直接输入区域 -->
+            <div v-else-if="inputMode === 'text'" class="text-area">
+              <el-input 
+                v-model="formData.userInput" 
+                type="textarea" 
+                :rows="5"
+                placeholder="请直接输入需要处理的文本内容..." 
+                :disabled="loading"
+                resize="none"
+                class="text-input"
+              />
             </div>
             
             <!-- 提示词按钮 -->
@@ -569,39 +659,108 @@ h3 {
   font-weight: 500;
 }
 
-.input-mode-tabs {
-  display: flex;
-  background-color: var(--highlight-color);
-  border-radius: 4px;
-  overflow: hidden;
+.mode-dropdown-container {
+  position: relative;
+  margin-left: auto;
+  z-index: 10;
+}
+
+.mode-dropdown {
+  position: relative;
+  cursor: pointer;
+  min-width: 120px;
+  border-radius: 6px;
   border: 1px solid var(--border-color);
+  background-color: var(--highlight-color);
+  transition: all 0.3s ease;
+  user-select: none;
+}
+
+.mode-dropdown:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 2px 6px rgba(110, 125, 224, 0.1);
+}
+
+.selected-mode {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  justify-content: space-between;
+}
+
+.selected-mode .el-icon {
+  font-size: 1rem;
+  color: var(--primary-color);
+}
+
+.dropdown-arrow {
+  transition: transform 0.3s ease;
   margin-left: auto;
 }
 
-.tab-item {
-  padding: 5px 10px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 0.8rem;
+.is-open .dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  width: 100%;
+  background-color: var(--card-bg);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.dropdown-item {
+  padding: 10px 12px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
+  gap: 8px;
+  transition: all 0.2s ease;
+  border-bottom: 1px solid var(--border-color);
 }
 
-.tab-item:not(:last-child) {
-  border-right: 1px solid var(--border-color);
+.dropdown-item:last-child {
+  border-bottom: none;
 }
 
-.tab-item.active {
+.dropdown-item:hover {
+  background-color: var(--highlight-color);
+}
+
+.dropdown-item.active {
   background-color: var(--tab-active-bg);
   color: var(--primary-color);
   font-weight: 500;
 }
 
-.tab-item:hover:not(.active) {
-  background-color: rgba(222, 230, 255, 0.5);
+.dropdown-item .el-icon {
+  font-size: 1rem;
+  color: var(--primary-color);
+}
+
+/* 下拉菜单动画 */
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: opacity 0.3s, transform 0.3s;
+  transform-origin: top center;
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: scaleY(0.8);
+}
+
+.dropdown-enter-to,
+.dropdown-leave-from {
+  opacity: 1;
+  transform: scaleY(1);
 }
 
 .compact-form {
@@ -611,7 +770,7 @@ h3 {
   flex-grow: 1;
 }
 
-.url-area, .file-area, .prompt-button-area {
+.url-area, .file-area, .text-area, .prompt-button-area {
   width: 100%;
 }
 
@@ -623,6 +782,23 @@ h3 {
 
 .url-input-group .el-input {
   flex: 1;
+}
+
+.text-input {
+  width: 100%;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.text-input .el-textarea__inner {
+  padding: 8px 12px;
+  border-color: var(--border-color);
+}
+
+.text-input .el-textarea__inner:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(110, 125, 224, 0.1);
 }
 
 .action-area {
